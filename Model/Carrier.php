@@ -21,6 +21,7 @@ use Magento\Shipping\Model\Carrier\CarrierInterface;
 use Magento\Shipping\Model\Rate\Result;
 use Magento\Shipping\Model\Rate\ResultFactory;
 use Magento\Store\Model\ScopeInterface;
+use Magento\Email\Model\Template\SenderResolver;
 use Porterbuddy\Porterbuddy\Api\Data\MethodInfoInterface;
 use Porterbuddy\Porterbuddy\Exception as PorterbuddyException;
 use Porterbuddy\Porterbuddy\Exception;
@@ -134,6 +135,11 @@ class Carrier extends AbstractCarrier implements CarrierInterface
      */
     protected $rateResultFactory;
 
+    /**
+     * @var \Magento\Email\Model\Template\SenderResolver
+     */
+    protected $senderResolver;
+
     public function __construct(
         Api $api,
         NotifierInterface $errorNotifier,
@@ -147,6 +153,7 @@ class Carrier extends AbstractCarrier implements CarrierInterface
         Packager $packager,
         Timeslots $timeslots,
         ScopeConfigInterface $scopeConfig,
+        SenderResolver $senderResolver,
         ErrorFactory $rateErrorFactory,
         LoggerInterface $logger,
         array $data = []
@@ -162,6 +169,7 @@ class Carrier extends AbstractCarrier implements CarrierInterface
         $this->salesOrderShipmentTrackFactory = $trackFactory;
         $this->packager = $packager;
         $this->timeslots = $timeslots;
+        $this->senderResolver = $senderResolver;
         parent::__construct($scopeConfig, $rateErrorFactory, $logger, $data);
     }
 
@@ -734,13 +742,13 @@ class Carrier extends AbstractCarrier implements CarrierInterface
         $deliveryPhone = $this->helper->splitPhoneCodeNumber($request->getRecipientContactPhoneNumber());
 
         $deliveryTimeslotIsKnown = ($methodInfo->getStart() && $methodInfo->getEnd());
+
+        $senderlIdentity = $this->helper->getOrderEmailIdentity($shipment->getStoreId());
+        $senderResult = $this->senderResolver->resolve($senderlIdentity,$shipment->getStoreId());
+
         $parameters = [
             'origin' => [
-                'name' => $this->_scopeConfig->getValue(
-                    'trans_email/ident_general/name',
-                    ScopeInterface::SCOPE_STORE,
-                    $shipment->getStoreId()
-                ),
+                'name' => $senderResult['name'],
                 'address' => [
                     'streetName' => $request->getShipperAddressStreet(),
                     'streetNumber' => ',', // TODO: remove when API ready
@@ -748,7 +756,7 @@ class Carrier extends AbstractCarrier implements CarrierInterface
                     'city' => $request->getShipperAddressCity(),
                     'country' => $request->getShipperAddressCountryCode(),
                 ],
-                'email' => $this->helper->getOrderEmailIdentity($shipment->getStoreId()),
+                'email' => $senderResult['email'],
                 'phoneCountryCode' => $pickupPhone[0] ?: $defaultPhoneCode,
                 'phoneNumber' => $pickupPhone[1],
                 'pickupWindows' => $this->timeslots->getPickupWindows($methodInfo),
